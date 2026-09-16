@@ -127,6 +127,9 @@ export function LocationSelector({ buildings }: LocationSelectorProps) {
             <DoorOpen className="w-4 h-4 text-sky-600" />
             Pilih Ruangan Target ({availableRooms.length})
           </label>
+          <p className="text-[11px] text-slate-500 -mt-1.5">
+            Pilih salah satu ruangan di bawah ini untuk memulai checklist K3.
+          </p>
 
           {availableRooms.length === 0 ? (
             <div className="p-4 text-center bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500">
@@ -145,20 +148,22 @@ export function LocationSelector({ buildings }: LocationSelectorProps) {
                   <button
                     key={room.id}
                     type="button"
-                    onClick={() => setSelectedRoomId(room.id)}
-                    className={`w-full text-left p-3.5 rounded-xl border transition flex items-center justify-between ${
+                    onClick={() => {
+                      setSelectedRoomId(room.id);
+                    }}
+                    className={`w-full text-left p-3.5 rounded-xl border transition flex items-center justify-between cursor-pointer ${
                       isSelected
-                        ? "bg-sky-50/80 border-sky-500 ring-2 ring-sky-500/20 shadow-sm"
-                        : "bg-white border-slate-200 hover:border-slate-300"
+                        ? "bg-sky-50 border-sky-500 ring-2 ring-sky-500/30 shadow-sm"
+                        : "bg-white border-slate-200 hover:border-sky-300 hover:bg-slate-50"
                     }`}
                   >
                     <div className="flex items-start gap-3">
                       <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                          isSelected ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-500"
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                          isSelected ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        <DoorOpen className="w-4 h-4" />
+                        <DoorOpen className="w-5 h-5" />
                       </div>
                       <div>
                         <h4 className="text-sm font-semibold text-slate-900">{room.name}</h4>
@@ -176,9 +181,15 @@ export function LocationSelector({ buildings }: LocationSelectorProps) {
                     </div>
 
                     {isSelected ? (
-                      <CheckCircle2 className="w-5 h-5 text-sky-600 shrink-0" />
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-sky-600 bg-sky-100/70 px-2.5 py-1 rounded-full shrink-0">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Terpilih</span>
+                      </div>
                     ) : (
-                      <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                      <div className="flex items-center gap-1 text-xs text-slate-400 shrink-0">
+                        <span>Pilih</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </div>
                     )}
                   </button>
                 );
@@ -189,12 +200,12 @@ export function LocationSelector({ buildings }: LocationSelectorProps) {
       )}
 
       {/* CTA Button */}
-      <div className="pt-4 sticky bottom-16 bg-white/95 backdrop-blur-sm p-2 -mx-4 border-t border-slate-100">
+      <div className="pt-4 pb-6">
         <button
           type="button"
           disabled={!selectedBuildingId || !selectedRoomId || isSubmitting}
           onClick={handleStartAudit}
-          className={`w-full py-3.5 px-4 rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 transition active:scale-[0.98] ${
+          className={`w-full py-3.5 px-4 rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 transition cursor-pointer active:scale-[0.98] ${
             selectedBuildingId && selectedRoomId && !isSubmitting
               ? "bg-sky-600 hover:bg-sky-700 text-white"
               : "bg-slate-200 text-slate-400 cursor-not-allowed"
@@ -202,6 +213,8 @@ export function LocationSelector({ buildings }: LocationSelectorProps) {
         >
           {isSubmitting ? (
             <span>Membuka Sesi Audit...</span>
+          ) : !selectedRoomId ? (
+            <span>Pilih Ruangan Terlebih Dahulu</span>
           ) : (
             <>
               <span>Buka Formulir Checklist</span>
