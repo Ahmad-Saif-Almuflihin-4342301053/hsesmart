@@ -34,10 +34,13 @@ export default function Home() {
 
       {/* Action CTA */}
       <div className="pt-2">
-        <button className="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white py-2.5 px-4 rounded-lg font-medium shadow-sm transition active:scale-[0.98]">
+        <a
+          href="/audit"
+          className="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white py-3 px-4 rounded-xl font-bold text-sm shadow-md transition active:scale-[0.98]"
+        >
           <PlusCircle className="w-5 h-5" />
           <span>Mulai Inspeksi Baru</span>
-        </button>
+        </a>
       </div>
 
       {/* Recent Inspections Section */}
