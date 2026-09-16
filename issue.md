@@ -1,121 +1,112 @@
-# Planning: Implementasi Halaman & Formulir Mobile-First Inspeksi Audit K3
+# Planning: Implementasi QR Scanner Kamera untuk Validasi Aset K3 Lapangan
 
-Dokumen ini memuat panduan *high-level planning* untuk perancangan antarmuka, alur pengguna (*user flow*), dan integrasi backend formulir inspeksi Audit K3 berbasis *mobile-first* (Checklist Kepatuhan K3 & Pelaporan Cepat Temuan Bahaya) pada aplikasi **HSE Smart**.
+Dokumen ini memuat panduan *high-level planning* untuk pembangunan fitur pemindai QR Code berbasis kamera perangkat (*native camera*) guna memvalidasi dan memeriksa kondisi aset-aset keselamatan K3 (APAR, Kotak P3K, Fire Alarm, Hydran, Rambu Evakuasi) di lapangan pada aplikasi **HSE Smart**.
 
 ---
 
 ## 1. Alur Pengguna (User Flow) & Fungsionalitas Utama
 
-Antarmuka inspeksi dirancang khusus untuk kenyamanan penggunaan satu tangan (*thumb-friendly*) oleh auditor lapangan:
-
 ```
-[ Beranda / Navigasi ]
-        │
-        ▼
-[ Alur 1: Pemilihan Lokasi ]
-  ├── 1. Pilih Gedung Kampus (Building)
-  └── 2. Pilih Ruangan Target (Room) ──> Deteksi Kategori (Lab, Workshop, Kelas, dll.)
-        │
-        ▼
-[ Alur 2: Formulir Checklist K3 ]
-  ├── Template Kriteria Otomatis per Kategori Ruangan
-  ├── Toggle Bivalen Besar (Thumb-friendly): [ Sesuai (Hijau) ] / [ Tidak Sesuai (Merah) ]
-  ├── Input Catatan Temuan Dinamis (Wajib jika "Tidak Sesuai")
-  │
-  └── [ Alur 3: Pelaporan Cepat Temuan Bahaya (Quick Hazard Form) ]
-        ├── Pemicu: Tombol Lapor / Floating Action Button
-        ├── Modal/Bottom Drawer Ringkas:
-        │     ├── Judul Bahaya & Deskripsi
-        │     ├── Selector Level Risiko: [ Low ] / [ Medium ] / [ High ]
-        │     └── Input Foto Kamera (HTML5 file capture: capture="environment")
-        └── Simpan Temuan Terintegrasi
-        │
-        ▼
-[ Alur 4: Penyimpanan & Sinkronisasi Data ]
-  ├── Server Actions: Upsert status item ke tabel `audit_items`
-  └── Server Actions: Insert data temuan ke tabel `hazard_findings`
+[ Navigasi Bawah (Bottom Bar) ] ──> [ Halaman /scan ]
+                                           │
+                                           ▼
+                            [ Inisialisasi Kamera Native ]
+                              (Permintaan izin kamera laptop / kamera belakang HP)
+                                           │
+                                           ▼
+                            [ Viewfinder / Kotak Bidik Scanner ]
+                              (Overlay visual pemindaian real-time)
+                                           │
+                                           ▼ (QR Code Terdeteksi, misal: HSE-APAR-001)
+                            [ Query Data Aset ke Database ]
+                                           │
+                                           ▼
+                            [ Modal / Bottom Sheet Status Aset ]
+                              ├── Detail: Kode, Tipe Aset, Lokasi (Gedung & Ruangan)
+                              ├── Status Fisik: Aktif / Rusak
+                              ├── Tanggal Kedaluwarsa & Indikator Masa Berlaku
+                              │
+                              ├── [ Tombol 1: Kondisi Aman / Sesuai ] ──> Konfirmasi Verifikasi
+                              └── [ Tombol 2: Laporkan Bahaya / Rusak ] ──> Form Temuan Bahaya
 ```
 
-### A. Alur Pemilihan Lokasi (Location Selection)
-- Auditor memilih **Gedung** melalui daftar card/selektor bertingkat.
-- Setelah gedung dipilih, sistem memuat daftar **Ruangan** pada gedung tersebut beserta informasi lantai dan kategori ruangan (`lab`, `workshop`, `classroom`, `office`, `canteen`).
-- Membuka atau melanjutkan sesi audit aktif untuk lokasi terpilih.
+### A. Layanan Kamera Pemindai (html5-qrcode)
+- Menggunakan library `html5-qrcode` untuk mengakses kamera native perangkat tanpa ketergantungan native framework.
+- Otomatis memprioritaskan kamera belakang pada perangkat smartphone (`facingMode: "environment"`).
+- Menyediakan visual viewport bidik (kotak pandu pemindaian) dengan animasi penunjuk garis pemindai (*scanner overlay*).
+- Penanganan izin (*permission handling*) yang ramah pengguna jika akses kamera ditolak atau perangkat tidak memiliki kamera.
 
-### B. Formulir Checklist K3 (Thumb-Friendly UI)
-- Kriteria audit disesuaikan dengan kategori ruangan yang sedang diperiksa.
-- Tombol aksi kepatuhan bivalen berukuran besar (tinggi minimal 44–48px) agar mudah ditekan jempol saat bergerak di lapangan:
-  - **Sesuai (*Compliant*)**: Status hijau dengan ikon centang.
-  - **Tidak Sesuai (*Non-Compliant*)**: Status merah/amber dengan ikon silang/peringatan.
-- Kolom input catatan ketidaksesuaian terbuka secara interaktif jika item ditandai "Tidak Sesuai".
+### B. Alur Validasi Aset K3
+- Saat QR Code terbaca, pemindai langsung menjeda (*pause*) pembacaan untuk mencegah pemindaian berulang.
+- Sistem mencari data aset di tabel `safety_assets` (beserta relasi ke tabel `rooms` dan `buildings`) berdasarkan `asset_code`.
+- Jika data ditemukan, tampilkan kartu modal informasi aset:
+  - **Nama & Kode Unik**: Misal `HSE-APAR-001`.
+  - **Tipe Aset**: APAR, P3K, Fire Alarm, Hydran, atau Evacuation Sign.
+  - **Lokasi Terpasang**: Nama Gedung & Ruangan.
+  - **Masa Berlaku / Expiry Date**: Peringatan visual jika aset telah kedaluwarsa (*expired*).
+  - **Status Fisik Terakhir**: `active`, `expired`, atau `damaged`.
+- Menyediakan dua tombol aksi cepat:
+  1. **"Kondisi Aman / Sesuai"**: Mengonfirmasi bahwa aset dalam kondisi baik dan siap digunakan.
+  2. **"Laporkan Bahaya / Rusak"**: Membuka pelaporan temuan bahaya yang langsung mengikat data temuan ke aset dan ruangan tersebut.
 
-### C. Pelaporan Temuan Bahaya (Quick Hazard Form)
-- *Bottom sheet* / modal cepat untuk mencatat temuan bahaya insidental di lokasi tanpa mengganggu alur checklist utama.
-- Field input esensial:
-  - **Judul Temuan** (misal: "Penumpukan Beban Stopkontak")
-  - **Tingkat Risiko**: Chip seleksi instan (`Low` / `Medium` / `High`).
-  - **Deskripsi & Rekomendasi**: Detail kondisi bahaya.
-  - **Foto Bukti**: Trigger kamera ponsel langsung menggunakan elemen HTML5 file input (`accept="image/*"` dengan `capture="environment"`) disertai pratinjau thumbnail.
-
-### D. Server Actions & Mutasi Database
-- Menggunakan Next.js Server Actions untuk interaksi langsung dengan database Drizzle ORM:
-  - `createOrGetAuditSession`: Inisiasi / pengambilan sesi audit aktif.
-  - `saveAuditItemCheck`: Melakukan penyimpanan / *upsert* data checklist ke tabel `audit_items`.
-  - `recordHazardFinding`: Menyimpan data temuan bahaya ke tabel `hazard_findings`.
+### C. Rute & Aksesibilitas
+- Membuat rute halaman khusus `/scan`.
+- Memperbarui `MobileShell` bottom navigation bar agar auditor dapat berpindah ke fitur pemindai kamera dengan 1 kali tap.
 
 ---
 
-## 2. Struktur File & Modul Target
+## 2. Struktur File Target
 
 ```text
 src/
 ├── actions/
-│   └── audit-actions.ts              # Server Actions: kelola sesi audit, upsert checklist, & insert temuan
+│   └── asset-actions.ts              # Server Actions: pencarian aset via QR code & update verifikasi
 ├── app/
-│   └── audit/
-│       ├── page.tsx                  # Halaman Step 1: Pemilihan Gedung & Ruangan
-│       └── [auditId]/
-│           └── rooms/
-│               └── [roomId]/
-│                   └── page.tsx      # Halaman Step 2: Eksekusi checklist & pelaporan temuan ruangan
+│   └── scan/
+│       └── page.tsx                  # Halaman utama pemindai QR scanner K3
 ├── components/
-│   └── audit/
-│       ├── LocationSelector.tsx      # Komponen seleksi bertingkat Gedung -> Ruangan
-│       ├── ChecklistContainer.tsx    # State wrapper & progress bar inspeksi ruangan
-│       ├── ChecklistItemCard.tsx     # Kartu butir checklist dengan toggle ramah jempol & textarea catatan
-│       ├── QuickHazardDrawer.tsx     # Bottom sheet modal formulir temuan bahaya cepat
-│       ├── CameraCaptureInput.tsx    # Komponen capture kamera HTML5 + preview thumbnail
-│       └── RiskLevelSelector.tsx     # Komponen pemilihan level risiko (Low/Medium/High)
-└── lib/
-    └── constants/
-        └── audit-templates.ts        # Master data template kriteria K3 per kategori ruangan
+│   ├── layout/
+│   │   └── MobileShell.tsx           # Integrasi tautan navigasi /scan pada bottom bar
+│   └── scan/
+│       ├── QRScannerView.tsx         # Komponen container kamera html5-qrcode & overlay bidik
+│       └── AssetValidationModal.tsx  # Modal detail status aset & tombol aksi cepat (Aman / Rusak)
 ```
 
 ---
 
-## 3. Rancangan Komponen UI Konseptual
+## 3. Komponen UI Konseptual
 
-1. **`LocationSelector`**:
-   - Card interaktif dengan visual badge per kategori ruangan, indikator lantai, dan transisi mulus menuju formulir audit.
-2. **`ChecklistItemCard`**:
-   - Touch target lebar dengan visual feedback kontras tinggi dan transisi expand/collapse untuk kolom catatan.
-3. **`QuickHazardDrawer`**:
-   - Drawer slide-up mobile-first yang memungkinkan input cepat satu tangan dan penutupan drawer yang intuitif.
-4. **`CameraCaptureInput`**:
-   - Antarmuka upload/kamera responsif dengan dukungan penggantian gambar dan visualisasi status lampiran foto.
+1. **`QRScannerView`**:
+   - Area video canvas dengan rasio persegi responsif di tengah layar.
+   - Border sudut penanda fokus (*reticle visual*) dan pesan instruksi: *"Arahkan kamera ke stiker QR Code Aset K3"*.
+   - Tombol toggle senter/flash jika didukung oleh perangkat.
+2. **`AssetValidationModal`**:
+   - Sheet modal yang muncul dari bawah (*bottom-up slide*).
+   - Badge status: Hijau (Aktif & Aman), Merah (Kedaluwarsa/Rusak).
+   - Dua tombol jempol kontras: Tombol Hijau ("Kondisi Aman/Sesuai") dan Tombol Merah ("Laporkan Bahaya/Rusak").
 
 ---
 
-## 4. Definition of Done & Acceptance Criteria
+## 4. Dependensi Tambahan yang Diperlukan
 
-Tahap pengerjaan dinyatakan selesai dan dapat diterima jika memenuhi kriteria:
+- **`html5-qrcode`**: Library pemindai QR code cross-platform berbasis HTML5 Web API.
 
-1. **Navigasi & Pemilihan Lokasi Berjalan**:
-   - Pengguna dapat memilih Gedung dan Ruangan, lalu diarahkan ke lembar checklist ruangan terkait dengan kriteria yang sesuai kategori ruangan.
-2. **Interaktivitas Checklist Responsif**:
-   - Toggle status "Sesuai" dan "Tidak Sesuai" berfungsi lancar pada layar mobile (viewport smartphone 360px - 430px).
-   - Kolom catatan terbuka dan dapat diisi saat status "Tidak Sesuai" dipilih.
-3. **Penyimpanan Data Terverifikasi**:
-   - Perubahan status checklist tersimpan ke tabel `audit_items` via Server Action dan persist saat halaman di-refresh.
-   - Pelaporan temuan bahaya (judul, deskripsi, level risiko, foto) tersimpan ke tabel `hazard_findings`.
-4. **Validasi Kompilasi & Build**:
-   - Perintah `npm run build` berjalan sukses tanpa error TypeScript, ESLint, maupun kendala hidrasi client/server components.
+---
+
+## 5. Definition of Done & Acceptance Criteria
+
+Fitur dinyatakan selesai apabila memenuhi kriteria berikut:
+
+1. **Akses Kamera Berfungsi**:
+   - Kamera laptop atau smartphone dapat diaktifkan pada halaman `/scan` setelah izin diberikan oleh pengguna.
+   - Area bidik kamera menampilkan feed gambar langsung dengan overlay visual kotak scanner.
+2. **Dekode QR Code Akurat**:
+   - Pemindai berhasil membaca teks QR Code aset (misal: `HSE-APAR-001`) dan tidak melakukan spamming request berkali-kali setelah terdeteksi.
+3. **Modal Validasi Aset Muncul**:
+   - Data aset yang tersimpan di database berhasil ditampilkan pada modal (tipe aset, ruangan/gedung, masa berlaku, status).
+   - Aksi "Kondisi Aman" mencatat status verifikasi aset.
+   - Aksi "Laporkan Bahaya" mengarahkan atau membuka form pencatatan temuan bahaya terkait.
+4. **Navigasi Mobile Terintegrasi**:
+   - Menu pemindai dapat diakses langsung dari bottom navigation bar di seluruh aplikasi.
+5. **Kompilasi & Build Bersih**:
+   - Perintah `npm run build` berjalan sukses tanpa error TypeScript maupun linting.
