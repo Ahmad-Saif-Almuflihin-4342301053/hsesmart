@@ -91,8 +91,20 @@ export async function getBuildingsWithRooms() {
     const allRooms = await db.select().from(rooms);
 
     return allBuildings.map((b) => ({
-      ...b,
-      rooms: allRooms.filter((r) => r.buildingId === b.id),
+      id: b.id,
+      name: b.name,
+      totalFloors: b.totalFloors,
+      createdAt: b.createdAt.toISOString(),
+      rooms: allRooms
+        .filter((r) => r.buildingId === b.id)
+        .map((r) => ({
+          id: r.id,
+          buildingId: r.buildingId,
+          name: r.name,
+          floor: r.floor,
+          category: r.category,
+          createdAt: r.createdAt.toISOString(),
+        })),
     }));
   } catch (error) {
     console.error("Error fetching buildings:", error);
