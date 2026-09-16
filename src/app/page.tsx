@@ -1,4 +1,5 @@
-import { PlusCircle, CheckCircle2, AlertOctagon, Clock } from "lucide-react";
+import { PlusCircle, CheckCircle2, AlertOctagon, Clock, QrCode } from "lucide-react";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -32,15 +33,22 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Action CTA */}
-      <div className="pt-2">
-        <a
+      {/* Action CTAs */}
+      <div className="grid grid-cols-2 gap-2.5 pt-1">
+        <Link
           href="/audit"
-          className="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white py-3 px-4 rounded-xl font-bold text-sm shadow-md transition active:scale-[0.98]"
+          className="flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 text-white py-3 px-3 rounded-xl font-bold text-xs shadow-md transition active:scale-[0.98] text-center"
         >
-          <PlusCircle className="w-5 h-5" />
-          <span>Mulai Inspeksi Baru</span>
-        </a>
+          <PlusCircle className="w-4 h-4 shrink-0" />
+          <span>Mulai Inspeksi</span>
+        </Link>
+        <Link
+          href="/scan"
+          className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-3 rounded-xl font-bold text-xs shadow-md transition active:scale-[0.98] text-center"
+        >
+          <QrCode className="w-4 h-4 shrink-0" />
+          <span>Scan QR Aset</span>
+        </Link>
       </div>
 
       {/* Recent Inspections Section */}
