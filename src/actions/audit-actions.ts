@@ -167,11 +167,27 @@ export async function getRoomAuditDetails(auditId: number, roomId: number) {
       .where(and(eq(hazardFindings.auditId, auditId), eq(hazardFindings.roomId, roomId)));
 
     return {
-      room,
-      audit,
-      building,
-      savedItems,
-      findings,
+      room: {
+        ...room,
+        createdAt: room.createdAt.toISOString(),
+      },
+      audit: {
+        ...audit,
+        auditDate: audit.auditDate.toISOString(),
+        createdAt: audit.createdAt.toISOString(),
+      },
+      building: {
+        ...building,
+        createdAt: building.createdAt.toISOString(),
+      },
+      savedItems: savedItems.map((item) => ({
+        ...item,
+        createdAt: item.createdAt.toISOString(),
+      })),
+      findings: findings.map((f) => ({
+        ...f,
+        createdAt: f.createdAt.toISOString(),
+      })),
     };
   } catch (error) {
     console.error("Error fetching room audit details:", error);
