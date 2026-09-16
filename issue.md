@@ -1,93 +1,134 @@
-# Planning: Implementasi Skema Database Audit K3 Kampus
+# Planning: Implementasi Halaman & Formulir Mobile-First Inspeksi Audit K3
 
-Dokumen ini memuat panduan *high-level planning* untuk merancang dan menyusun skema database Audit K3 Kampus (Gedung, Ruangan, Aset K3, Checklist Audit, dan Temuan Bahaya) menggunakan Drizzle ORM (PostgreSQL).
-
----
-
-## 1. Ringkasan Domain & Kebutuhan Relasi
-
-Sistem audit K3 kampus terdiri dari 4 klaster entitas utama:
-
-```
-[ buildings ] ──< (1:N) ──> [ rooms ] ──< (1:N) ──> [ safety_assets ]
-      │                         │
-      │ (1:N)                   │ (1:N)
-      ▼                         ▼
-  [ audits ] ───< (1:N) ───> [ audit_items ]
-      │                         ▲
-      │ (1:N)                   │
-      ▼                         │ (1:N)
-[ hazard_findings ] ────────────┘
-```
-
-### A. Lokasi Kampus
-1. **`buildings` (Gedung)**
-   - Atribut: `id` (PK, serial), `name` (text, not null), `total_floors` (integer, not null), `created_at` (timestamp).
-2. **`rooms` (Ruangan)**
-   - Atribut: `id` (PK, serial), `building_id` (FK -> `buildings.id`), `name` (text), `floor` (integer), `category` (enum/text: `classroom`, `lab`, `canteen`, `workshop`, `office`), `created_at` (timestamp).
-   - Relasi: Banyak ruangan berada dalam satu gedung (`buildings` 1:N `rooms`).
-
-### B. Aset & Titik Fasilitas K3
-3. **`safety_assets` (Aset Fasilitas Keselamatan)**
-   - Atribut: `id` (PK, serial), `room_id` (FK -> `rooms.id`), `asset_code` (text, unique/qr-code), `type` (enum/text: `apar`, `p3k`, `fire_alarm`, `hydran`, `evacuation_sign`), `expiry_date` (timestamp/date), `status` (enum/text: `active`, `expired`, `damaged`), `created_at` (timestamp).
-   - Relasi: Setiap aset keselamatan terpasang pada satu ruangan tertentu (`rooms` 1:N `safety_assets`).
-
-### C. Pelaksanaan Audit & Checklist Kepatuhan
-4. **`audits` (Sesi Audit)**
-   - Atribut: `id` (PK, serial), `building_id` (FK -> `buildings.id`), `auditor_name` (text), `audit_date` (timestamp/date), `status` (enum/text: `draft`, `completed`), `created_at` (timestamp).
-   - Relasi: Satu sesi audit menginspeksi satu gedung spesifik (`buildings` 1:N `audits`).
-5. **`audit_items` (Item Checklist Audit)**
-   - Atribut: `id` (PK, serial), `audit_id` (FK -> `audits.id`), `room_id` (FK -> `rooms.id`), `criteria_label` (text), `is_compliant` (boolean), `notes` (text), `created_at` (timestamp).
-   - Relasi: Menghubungkan sesi audit dengan ruangan yang diperiksa (`audits` 1:N `audit_items` dan `rooms` 1:N `audit_items`).
-
-### D. Temuan Bahaya Lapangan
-6. **`hazard_findings` (Temuan Bahaya / Hazard)**
-   - Atribut: `id` (PK, serial), `audit_id` (FK -> `audits.id`), `room_id` (FK -> `rooms.id`), `title` (text), `description` (text), `photo_url` (text), `risk_level` (enum/text: `low`, `medium`, `high`), `status` (enum/text: `open`, `in_progress`, `resolved`), `created_at` (timestamp).
-   - Relasi: Temuan dicatat dalam sesi audit tertentu dan terikat ke ruangan tempat bahaya ditemukan (`audits` 1:N `hazard_findings` dan `rooms` 1:N `hazard_findings`).
+Dokumen ini berisi rancangan *high-level planning* untuk pembangunan antarmuka dan alur formulir inspeksi Audit K3 berbasis *mobile-first* (Checklist K3 & Pelaporan Temuan Bahaya) pada aplikasi **HSE Smart**.
 
 ---
 
-## 2. Struktur File Target (`src/db/schema/*`)
+## 1. Alur Pengguna (User Flow) & Rancangan Fungsional
 
-Untuk menjaga modularitas kode dan kemudahan *maintenance*, skema dipecah per domain konteks:
+Inspeksi lapangan K3 dirancang dengan interaksi *thumb-friendly* (ramah satu tangan) agar auditor lapangan dapat mencatat kepatuhan secara cepat tanpa hambatan:
+
+```
+[ Inisiasi Audit ]
+       │
+       ▼
+[ Pilih Gedung & Ruangan ] ──(Filter Kategori Ruangan: Lab / Kelas / Bengkel / dll)
+       │
+       ▼
+[ Formulir Checklist K3 ]
+  ├── Toggle Status: [ Sesuai (Hijau) ] / [ Tidak Sesuai (Merah) ]
+  ├── Catatan Temuan Khusus (jika tidak sesuai)
+  │
+  └── [ Quick Hazard Action Button ]
+              │
+              ▼
+    [ Form Cepat Temuan Bahaya ]
+      ├── Judul & Deskripsi
+      ├── Risk Level: Low / Medium / High
+      ├── Input Foto Kamera (HTML5 file capture)
+      └── Simpan Temuan ke Database
+       │
+       ▼
+[ Simpan Draft / Finalisasi Audit ]
+```
+
+### A. Alur Pemilihan Lokasi
+- Auditor memulai sesi baru dengan memilih **Gedung** (*Building*) dari daftar dropdown/card interaktif.
+- Setelah gedung terpilih, daftar **Ruangan** (*Rooms*) pada gedung tersebut ditampilkan dengan indikator lantai dan kategori ruangan (misal: Ruang Teori, Laboratorium Kimia, Workshop Mesin).
+- Sistem memuat template checklist spesifik sesuai dengan kategori ruangan terpilih.
+
+### B. Formulir Checklist K3 (Thumb-Friendly UI)
+- Setiap kriteria audit ditampilkan dalam bentuk kartu (*card*) ringkas.
+- **Opsi Kepatuhan**: Menggunakan tombol toggle atau switch berukuran minimal 44x44px untuk kenyamanan tap jempol:
+  - **Sesuai (*Compliant*)**: Aksen warna hijau dengan ikon centang.
+  - **Tidak Sesuai (*Non-Compliant*)**: Aksen warna merah/amber dengan ikon peringatan.
+- **Input Catatan Dinamis**: Muncul secara otomatis atau ekspansif saat item ditandai "Tidak Sesuai".
+
+### C. Pelaporan Temuan Bahaya (Quick Hazard Form)
+- Tombol aksi mengambang (*Floating Action Button*) atau *drawer/bottom sheet* untuk melaporkan bahaya mendadak di lokasi.
+- Field isian ringkas:
+  - **Judul Temuan** (misal: "Kabel Panel Listrik Terbuka")
+  - **Deskripsi & Rekomendasi Tindakan**
+  - **Level Risiko**: Pilihan chip satu ketukan (`Low` / `Medium` / `High`)
+  - **Input Foto**: Komponen input HTML5 yang memicu kamera ponsel langsung (`accept="image/*"` dengan atribut `capture="environment"`).
+
+### D. Server Actions & Mutasi Database
+- Memanfaatkan **Next.js Server Actions** untuk mutasi langsung ke database Drizzle ORM tanpa perlu konfigurasi boilerplate REST API manual:
+  - `createOrGetAuditSession`: Membuka sesi audit untuk gedung terpilih.
+  - `saveAuditItemCheck`: Melakukan penyimpanan / *upsert* status checklist ke tabel `audit_items`.
+  - `recordHazardFinding`: Menyimpan catatan bahaya ke tabel `hazard_findings`.
+
+---
+
+## 2. Struktur File Target
+
+Pengorganisasian kode modular pada Next.js App Router dan direktori komponen:
 
 ```text
-src/db/
-├── index.ts                   # Ekspor instance db client & relasi skema gabungan
-└── schema/
-    ├── locations.ts           # Definisi tabel `buildings` dan `rooms`
-    ├── safety-assets.ts       # Definisi tabel `safety_assets` & enum tipe/status aset
-    ├── audits.ts              # Definisi tabel `audits` dan `audit_items`
-    ├── hazard-findings.ts     # Definisi tabel `hazard_findings` & enum risk level/status
-    └── index.ts               # Re-export seluruh tabel, enums, dan Drizzle relations
+src/
+├── actions/
+│   └── audit-actions.ts              # Server actions: kelola sesi audit, checklist, & temuan
+├── app/
+│   ├── (dashboard)/
+│   │   └── page.tsx                  # Beranda dengan tombol CTA "Mulai Inspeksi Baru"
+│   └── audit/
+│       ├── page.tsx                  # Step 1: Halaman pemilihan Gedung & Ruangan
+│       └── [auditId]/
+│           └── rooms/
+│               └── [roomId]/
+│                   └── page.tsx      # Step 2: Halaman eksekusi checklist & temuan ruangan
+├── components/
+│   └── audit/
+│       ├── LocationSelector.tsx      # Selector bertingkat Gedung -> Ruangan
+│       ├── ChecklistContainer.tsx    # State container checklist ruangan
+│       ├── ChecklistItemCard.tsx     # Komponen kartu checklist dengan toggle ramah jempol
+│       ├── QuickHazardDrawer.tsx     # Bottom sheet / modal pelaporan cepat temuan bahaya
+│       ├── CameraCaptureInput.tsx    # Komponen input foto kamera HTML5 + preview thumbnail
+│       └── RiskLevelSelector.tsx     # Selector pill/chip untuk tingkat risiko bahaya
+└── lib/
+    └── constants/
+        └── audit-templates.ts        # Kumpulan master kriteria K3 per kategori ruangan
 ```
 
 ---
 
-## 3. Langkah Implementasi (Implementation Tasks)
+## 3. Komponen UI Konseptual
 
-1. **Definisi Enums & Tabel Skema**:
-   - Buat file skema modular di `src/db/schema/` sesuai struktur file target.
-   - Tetapkan tipe data kolom, constraints (`notNull`, `primaryKey`, `defaultNow`, `unique`), serta *foreign keys* cascading yang tepat.
-2. **Definisi Drizzle Relations (`relations`)**:
-   - Konfigurasikan relasi satu-ke-banyak (1:N) dan relasi balik (*belongs-to*) menggunakan helper `relations` dari `drizzle-orm` untuk mempermudah *relational query*.
-3. **Ekspor Terpusat**:
-   - Satukan ekspor seluruh tabel, enums, dan relations di `src/db/schema/index.ts`.
-4. **Verifikasi Migrasi**:
-   - Jalankan migration generator Drizzle Kit untuk memastikan konsistensi seluruh relasi dan tipe data.
+1. **`LocationSelector`**:
+   - Menampilkan card pemilihan gedung dan grid pemilihan ruangan dengan badge kategori ruangan.
+2. **`ChecklistItemCard`**:
+   - Komponen dengan tombol toggle bivalen besar (50-60px height) agar mudah di-tap dengan jempol saat auditor berjalan.
+   - Text area catatan dengan transisi *accordion/expand*.
+3. **`QuickHazardDrawer`**:
+   - *Slide-up bottom sheet* yang tidak menutupi seluruh layar secara kaku, memungkinkan pengisian laporan insidental secara cepat tanpa kehilangan konteks halaman audit.
+4. **`CameraCaptureInput`**:
+   - Tombol trigger kamera yang menampilkan ikon kamera besar, preview thumbnail hasil foto, dan tombol hapus/ambil ulang.
 
 ---
 
-## 4. Definition of Done & Acceptance Criteria
+## 4. Master Data Kriteria Audit (`audit-templates.ts`)
 
-Tahap implementasi skema database dinyatakan selesai dan diterima apabila memenuhi kriteria berikut:
+Menyediakan daftar standar kriteria inspeksi K3 kampus terstruktur berdasarkan kategori ruangan:
+- **Laboratorium**: Penyimpanan bahan B3, kelayakan eye washer/shower, ventilasi exhaust, ketersediaan APAR tipe CO2/Powder.
+- **Workshop/Bengkel**: Jalur evakuasi bebas rintangan, grounding mesin listrik, ketersediaan kotak P3K lengkap, SOP alat berat.
+- **Kelas/Kantor**: Kelayakan instalasi stopkontak, penerangan memadai, rambu petunjuk jalur evakuasi, kebersihan dan ergonomi.
+- **Kantin/Umum**: Kebersihan sanitasi, ketersediaan alat pemadam, jalur evakuasi darurat, penempatan tabung gas aman.
 
-1. **Struktur Modul Sesuai**:
-   - Semua domain (Lokasi, Aset K3, Audit/Checklist, Temuan Bahaya) terorganisasi rapi di bawah folder `src/db/schema/`.
-2. **Drizzle Kit Generation Berhasil**:
-   - Perintah eksekusi `npx drizzle-kit generate` (atau `npm run db:generate`) berjalan sukses tanpa error syntax, circular dependency, atau invalid foreign key.
-   - File migrasi SQL baru berhasil dibuat di direktori `src/db/migrations/`.
-3. **Drizzle Check & Type Checking Lolos**:
-   - Perintah `npx tsc --noEmit` atau `npm run build` berhasil mengompilasi seluruh file skema tanpa *type errors* pada Drizzle ORM types.
-4. **Integritas Relasi**:
-   - Seluruh foreign key (`building_id`, `room_id`, `audit_id`) terkonfigurasi dengan benar ke tabel induk masing-masing.
+---
+
+## 5. Definition of Done & Acceptance Criteria
+
+Fitur dinyatakan selesai dan lolos verifikasi jika memenuhi kriteria berikut:
+
+1. **Alur Pemilihan Lokasi Berfungsi**:
+   - Auditor dapat memilih Gedung dan Ruangan dari data database (atau seed initial data), lalu diarahkan ke halaman checklist ruangan terkait.
+2. **Interaktivitas Checklist (Thumb-Friendly)**:
+   - Tombol toggle "Sesuai" dan "Tidak Sesuai" responsif pada layar mobile (lebar 360px - 430px).
+   - Menandai "Tidak Sesuai" membuka kolom input catatan temuan.
+3. **Penyimpanan Checklist Terverifikasi**:
+   - Perubahan status checklist tersimpan ke tabel `audit_items` via Server Action dan mempertahankan status saat halaman dimuat ulang (*refresh*).
+4. **Pelaporan Temuan Bahaya Berhasil**:
+   - Modal/Drawer temuan bahaya dapat dibuka, menerima input judul, deskripsi, level risiko, dan file foto dari input kamera.
+   - Data temuan tersimpan ke tabel `hazard_findings` dan terhubung dengan `audit_id` serta `room_id` yang sesuai.
+5. **Kompilasi & Build Bersih**:
+   - Perintah `npm run build` berjalan tanpa error TypeScript, ESLint, maupun masalah SSR/Client component hydration.
