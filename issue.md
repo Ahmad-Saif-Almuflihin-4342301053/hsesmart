@@ -1,117 +1,93 @@
-# Planning: Scaffolding Project Audit K3 (HSE Smart)
+# Planning: Implementasi Skema Database Audit K3 Kampus
 
-Dokumen ini berisi panduan *high-level planning* untuk proses scaffolding awal aplikasi Audit K3 (**HSE Smart**). Dokumen ini ditujukan sebagai acuan bagi implementation agent / junior developer.
-
----
-
-## 1. Arsitektur & Pilihan Tech Stack
-
-- **Framework**: **Next.js (App Router, TypeScript)**
-  - *Alasan*: Mendukung full-stack dalam satu codebase (Server Components, API Routes/Server Actions), integrasi metadata PWA mudah, dan performa tinggi untuk web app mobile-first.
-- **Styling**: **Tailwind CSS** (Mobile-first responsive utilities, safe-area padding).
-- **Icon Library**: **lucide-react** (Standar visual modern dan ringan).
-- **Backend & Database**: **Drizzle ORM** dengan driver **PostgreSQL** (opsional MySQL) untuk mengelola data inspeksi K3, temuan (*findings*), dan kepatuhan (*compliance checklist*).
-- **Mobile / PWA**: Web App Manifest (`manifest.json`), meta tags viewport mobile-first, dan konfigurasi mode `standalone`.
+Dokumen ini memuat panduan *high-level planning* untuk merancang dan menyusun skema database Audit K3 Kampus (Gedung, Ruangan, Aset K3, Checklist Audit, dan Temuan Bahaya) menggunakan Drizzle ORM (PostgreSQL).
 
 ---
 
-## 2. Daftar Dependensi
+## 1. Ringkasan Domain & Kebutuhan Relasi
 
-### Production Dependencies (`dependencies`)
-- `next`: Framework React utama (App Router)
-- `react`, `react-dom`: Library core UI
-- `lucide-react`: Kumpulan ikon HSE/Audit (checklist, alert, camera, user, report)
-- `drizzle-orm`: TypeScript ORM untuk manipulasi data audit/inspeksi
-- `postgres` (atau `mysql2` jika target database MySQL): Database client driver
-- `clsx`, `tailwind-merge`: Helper manipulasi class Tailwind conditionally
+Sistem audit K3 kampus terdiri dari 4 klaster entitas utama:
 
-### Development Dependencies (`devDependencies`)
-- `typescript`: Type safety
-- `@types/react`, `@types/react-dom`, `@types/node`: Type definitions
-- `tailwindcss`, `postcss`, `autoprefixer`: Toolchain CSS
-- `drizzle-kit`: Migration tool dan schema generator untuk Drizzle
-- `dotenv`: Environment variables management
+```
+[ buildings ] ──< (1:N) ──> [ rooms ] ──< (1:N) ──> [ safety_assets ]
+      │                         │
+      │ (1:N)                   │ (1:N)
+      ▼                         ▼
+  [ audits ] ───< (1:N) ───> [ audit_items ]
+      │                         ▲
+      │ (1:N)                   │
+      ▼                         │ (1:N)
+[ hazard_findings ] ────────────┘
+```
+
+### A. Lokasi Kampus
+1. **`buildings` (Gedung)**
+   - Atribut: `id` (PK, serial), `name` (text, not null), `total_floors` (integer, not null), `created_at` (timestamp).
+2. **`rooms` (Ruangan)**
+   - Atribut: `id` (PK, serial), `building_id` (FK -> `buildings.id`), `name` (text), `floor` (integer), `category` (enum/text: `classroom`, `lab`, `canteen`, `workshop`, `office`), `created_at` (timestamp).
+   - Relasi: Banyak ruangan berada dalam satu gedung (`buildings` 1:N `rooms`).
+
+### B. Aset & Titik Fasilitas K3
+3. **`safety_assets` (Aset Fasilitas Keselamatan)**
+   - Atribut: `id` (PK, serial), `room_id` (FK -> `rooms.id`), `asset_code` (text, unique/qr-code), `type` (enum/text: `apar`, `p3k`, `fire_alarm`, `hydran`, `evacuation_sign`), `expiry_date` (timestamp/date), `status` (enum/text: `active`, `expired`, `damaged`), `created_at` (timestamp).
+   - Relasi: Setiap aset keselamatan terpasang pada satu ruangan tertentu (`rooms` 1:N `safety_assets`).
+
+### C. Pelaksanaan Audit & Checklist Kepatuhan
+4. **`audits` (Sesi Audit)**
+   - Atribut: `id` (PK, serial), `building_id` (FK -> `buildings.id`), `auditor_name` (text), `audit_date` (timestamp/date), `status` (enum/text: `draft`, `completed`), `created_at` (timestamp).
+   - Relasi: Satu sesi audit menginspeksi satu gedung spesifik (`buildings` 1:N `audits`).
+5. **`audit_items` (Item Checklist Audit)**
+   - Atribut: `id` (PK, serial), `audit_id` (FK -> `audits.id`), `room_id` (FK -> `rooms.id`), `criteria_label` (text), `is_compliant` (boolean), `notes` (text), `created_at` (timestamp).
+   - Relasi: Menghubungkan sesi audit dengan ruangan yang diperiksa (`audits` 1:N `audit_items` dan `rooms` 1:N `audit_items`).
+
+### D. Temuan Bahaya Lapangan
+6. **`hazard_findings` (Temuan Bahaya / Hazard)**
+   - Atribut: `id` (PK, serial), `audit_id` (FK -> `audits.id`), `room_id` (FK -> `rooms.id`), `title` (text), `description` (text), `photo_url` (text), `risk_level` (enum/text: `low`, `medium`, `high`), `status` (enum/text: `open`, `in_progress`, `resolved`), `created_at` (timestamp).
+   - Relasi: Temuan dicatat dalam sesi audit tertentu dan terikat ke ruangan tempat bahaya ditemukan (`audits` 1:N `hazard_findings` dan `rooms` 1:N `hazard_findings`).
 
 ---
 
-## 3. Rekomendasi Struktur Folder
+## 2. Struktur File Target (`src/db/schema/*`)
+
+Untuk menjaga modularitas kode dan kemudahan *maintenance*, skema dipecah per domain konteks:
 
 ```text
-hsesmart/
-├── public/
-│   ├── icons/                 # PWA icons (192x192, 512x512)
-│   └── manifest.json          # Web App Manifest PWA dasar
-├── src/
-│   ├── app/
-│   │   ├── (auth)/            # Routing grup untuk login/otentikasi
-│   │   ├── (dashboard)/       # Routing grup antarmuka audit K3
-│   │   │   ├── audits/        # Halaman daftar & formulir inspeksi
-│   │   │   └── page.tsx       # Beranda / ringkasan kepatuhan K3
-│   │   ├── api/               # Endpoint REST API (bila dibutuhkan client)
-│   │   ├── favicon.ico
-│   │   ├── globals.css        # Konfigurasi Tailwind dasar & custom utilities
-│   │   └── layout.tsx         # Root layout (Viewport & PWA Metadata)
-│   ├── components/
-│   │   ├── layout/            # BottomNavigation, MobileHeader, MobileShell
-│   │   └── ui/                # Tombol, badge status K3, card temuan
-│   ├── db/
-│   │   ├── schema/            # Definisi tabel Drizzle (inspections, findings, users)
-│   │   │   └── index.ts
-│   │   └── index.ts           # Inisialisasi koneksi Drizzle client
-│   ├── lib/
-│   │   └── utils.ts           # Utility helper (cn / classnames)
-│   └── types/
-│       └── index.ts           # Custom types & domain interfaces HSE
-├── drizzle.config.ts          # Konfigurasi Drizzle Kit
-├── next.config.mjs            # Konfigurasi Next.js
-├── package.json
-├── postcss.config.mjs
-├── tailwind.config.ts
-└── tsconfig.json
+src/db/
+├── index.ts                   # Ekspor instance db client & relasi skema gabungan
+└── schema/
+    ├── locations.ts           # Definisi tabel `buildings` dan `rooms`
+    ├── safety-assets.ts       # Definisi tabel `safety_assets` & enum tipe/status aset
+    ├── audits.ts              # Definisi tabel `audits` dan `audit_items`
+    ├── hazard-findings.ts     # Definisi tabel `hazard_findings` & enum risk level/status
+    └── index.ts               # Re-export seluruh tabel, enums, dan Drizzle relations
 ```
 
 ---
 
-## 4. Langkah-Langkah Scaffolding (Implementation Tasks)
+## 3. Langkah Implementasi (Implementation Tasks)
 
-1. **Inisialisasi Project**:
-   - Inisialisasi project Next.js menggunakan TypeScript, Tailwind CSS, App Router, dan `src/` directory.
-2. **Instalasi Paket Tambahan**:
-   - Tambahkan `lucide-react`, `drizzle-orm`, driver database (`postgres` atau `mysql2`), dan `drizzle-kit`.
-3. **Konfigurasi Mobile & PWA**:
-   - Siapkan `public/manifest.json` dengan:
-     - `display: "standalone"`
-     - `start_url: "/"`
-     - Nama: `"HSE Smart - Audit K3"`
-     - Penyiapan placeholder ikon PWA.
-   - Atur `viewport` pada root layout (`src/app/layout.tsx`) agar responsif terhadap perangkat mobile (`width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover`).
-4. **Konfigurasi Database & ORM**:
-   - Buat `drizzle.config.ts` yang mengarah ke folder schema `src/db/schema`.
-   - Siapkan file koneksi database dasar di `src/db/index.ts` menggunakan environment variable (`DATABASE_URL`).
-5. **Layout Mobile-First**:
-   - Siapkan wrapper layout mobile (`MobileShell`) dengan container responsif (`max-w-md mx-auto min-h-screen bg-slate-50`) serta placeholder navigasi bawah (*Bottom Bar*).
+1. **Definisi Enums & Tabel Skema**:
+   - Buat file skema modular di `src/db/schema/` sesuai struktur file target.
+   - Tetapkan tipe data kolom, constraints (`notNull`, `primaryKey`, `defaultNow`, `unique`), serta *foreign keys* cascading yang tepat.
+2. **Definisi Drizzle Relations (`relations`)**:
+   - Konfigurasikan relasi satu-ke-banyak (1:N) dan relasi balik (*belongs-to*) menggunakan helper `relations` dari `drizzle-orm` untuk mempermudah *relational query*.
+3. **Ekspor Terpusat**:
+   - Satukan ekspor seluruh tabel, enums, dan relations di `src/db/schema/index.ts`.
+4. **Verifikasi Migrasi**:
+   - Jalankan migration generator Drizzle Kit untuk memastikan konsistensi seluruh relasi dan tipe data.
 
 ---
 
-## 5. Acceptance Criteria
+## 4. Definition of Done & Acceptance Criteria
 
-Scaffolding dinyatakan selesai apabila:
+Tahap implementasi skema database dinyatakan selesai dan diterima apabila memenuhi kriteria berikut:
 
-1. **Build Valid**:
-   - Perintah `npm run build` berjalan sukses tanpa error kompilasi TypeScript atau CSS.
-2. **Local Server Ready**:
-   - Perintah `npm run dev` dapat dijalankan dan merespons pada `http://localhost:3000`.
-3. **HTTP / curl Verification**:
-   - Pengecekan via terminal:
-     ```bash
-     curl -I http://localhost:3000
-     ```
-     Menghasilkan status HTTP `200 OK`.
-4. **PWA Manifest Accessible**:
-   - Pengecekan endpoint manifest:
-     ```bash
-     curl -s http://localhost:3000/manifest.json | grep '"standalone"'
-     ```
-     Menghasilkan konfigurasi manifest yang valid dengan `display: "standalone"`.
-5. **Mobile-First Layout**:
-   - Halaman root (`/`) memuat tampilan dasar mobile-first dengan icon `lucide-react` tanpa error layout shift / styling breakdown.
+1. **Struktur Modul Sesuai**:
+   - Semua domain (Lokasi, Aset K3, Audit/Checklist, Temuan Bahaya) terorganisasi rapi di bawah folder `src/db/schema/`.
+2. **Drizzle Kit Generation Berhasil**:
+   - Perintah eksekusi `npx drizzle-kit generate` (atau `npm run db:generate`) berjalan sukses tanpa error syntax, circular dependency, atau invalid foreign key.
+   - File migrasi SQL baru berhasil dibuat di direktori `src/db/migrations/`.
+3. **Drizzle Check & Type Checking Lolos**:
+   - Perintah `npx tsc --noEmit` atau `npm run build` berhasil mengompilasi seluruh file skema tanpa *type errors* pada Drizzle ORM types.
+4. **Integritas Relasi**:
+   - Seluruh foreign key (`building_id`, `room_id`, `audit_id`) terkonfigurasi dengan benar ke tabel induk masing-masing.
